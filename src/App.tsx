@@ -12,7 +12,6 @@ interface RawFarmerRow {
   Contrasena?: string | number; // 🔒 NUEVA COLUMNA PARA EL EXCEL
   Municipio?: string;
   Seniority_años?: string | number;
-  "Seniority_años"?: string | number;
   Calidad_premium?: string;
   [key: string]: unknown;
 }
