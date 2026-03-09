@@ -9,6 +9,7 @@ interface RawFarmerRow {
   Nombre: string;
   Cedula: string | number;
   Contrasena?: string | number; 
+  Email?: string; // 📧 COLUMNA DE EMAIL
   Municipio?: string;
   Seniority_años?: string | number;
   Calidad_premium?: string;
@@ -185,8 +186,8 @@ const style = `
   * { box-sizing:border-box; margin:0; padding:0; }
   :root { --cream:#f5f0e8;--brown:#3d2b1f;--bl:#7a5c45;--green:#2d5a27;--gl:#4a8c42;--gold:#c8922a;--gll:#e8b84b;--silver:#8a9ba8;--diam:#4fc3c0;--red:#c0392b;--white:#fffdf8; }
   .app { min-height:100vh; background:var(--cream); font-family:'DM Sans',sans-serif; }
-  .login-screen { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(160deg,#1a3a15,#2d5a27,#3d2b1f); }
-  .login-card { background:var(--white); border-radius:24px; padding:48px 40px; width:400px; max-width:95vw; box-shadow:0 40px 80px rgba(0,0,0,.4); }
+  .login-screen { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(160deg,#1a3a15,#2d5a27,#3d2b1f); padding: 20px; }
+  .login-card { background:var(--white); border-radius:24px; padding:48px 40px; width:400px; max-width:100%; box-shadow:0 40px 80px rgba(0,0,0,.4); max-height: 90vh; overflow-y: auto; }
   .brand { font-family:'Playfair Display',serif; font-size:36px; font-weight:900; color:var(--green); text-align:center; margin-bottom:4px; }
   .brand span { color:var(--gold); }
   .brand-sub { font-size:11px; color:var(--bl); text-transform:uppercase; letter-spacing:3px; text-align:center; margin-bottom:28px; }
@@ -492,7 +493,6 @@ function AdminApp({ farmersRaw, movimientosRaw, premios, rawDebug, onRefresh, on
       return;
     }
 
-    // 🌟 IDs SECUENCIALES
     const maxId = movimientosRaw.reduce((max, m) => Math.max(max, Number(m.ID) || 0), 0);
     const nuevoId = maxId + 1;
 
@@ -682,35 +682,78 @@ function CanjeSec({ t }: { t: (m: string) => void }) {
   </>;
 }
 
-// ─── LOGIN ────────────────────────────────────────────────────────────────────
+// ─── LOGIN & REGISTRO ─────────────────────────────────────────────────────────
 interface LoginProps {
   farmersRaw: RawFarmerRow[];
   movimientosRaw: RawMovRow[];
   onLogin: (s: Session) => void;
+  onRefresh: () => Promise<void>; 
 }
 
-function Login({ farmersRaw, movimientosRaw, onLogin }: LoginProps) {
+function Login({ farmersRaw, movimientosRaw, onLogin, onRefresh }: LoginProps) {
   const [mode, setMode]             = useState<"farmer"|"admin">("farmer");
+  const [isReg, setIsReg]           = useState<boolean>(false);
+  
   const [cedula, setCedula]         = useState<string>("");
   const [farmerPass, setFarmerPass] = useState<string>(""); 
   const [user, setUser]             = useState<string>("");
   const [pass, setPass]             = useState<string>("");
   const [err, setErr]               = useState<string>("");
+  const [loading, setLoading]       = useState<boolean>(false);
+
+  const [regName, setRegName]       = useState<string>("");
+  const [regCedula, setRegCedula]   = useState<string>("");
+  const [regCorreo, setRegCorreo]   = useState<string>("");
+  const [regMuni, setRegMuni]       = useState<string>("");
+  const [regPass, setRegPass]       = useState<string>("");
 
   const go = () => {
     setErr("");
     if (mode === "farmer") {
       const row = farmersRaw.find(x => String(x.Cedula).trim() === cedula.trim());
       if (!row) return setErr(`Cédula no encontrada.`);
-      
-      if (String(row.Contrasena).trim() !== farmerPass.trim()) {
-        return setErr("Contraseña incorrecta. Intenta de nuevo.");
-      }
-
+      if (String(row.Contrasena).trim() !== farmerPass.trim()) return setErr("Contraseña incorrecta. Intenta de nuevo.");
       onLogin({ type:"farmer", data: mapFarmer(row, movimientosRaw) });
     } else {
       if (user === "admin" && pass === "viveagro") onLogin({ type:"admin" });
       else setErr("Usuario o contraseña incorrectos.");
+    }
+  };
+
+  const register = async () => {
+    setErr("");
+    if (!regName || !regCedula || !regPass || !regMuni) return setErr("Por favor llena todos los campos obligatorios (*)");
+    if (farmersRaw.some(x => String(x.Cedula).trim() === regCedula.trim())) return setErr("Esta cédula ya tiene una cuenta registrada.");
+
+    setLoading(true);
+    const maxId = farmersRaw.reduce((max, f) => Math.max(max, Number(f.ID) || 0), 0);
+    const nuevoAgricultor = {
+      ID: maxId + 1,
+      Nombre: regName,
+      Cedula: regCedula,
+      Email: regCorreo,
+      Contrasena: regPass,
+      Municipio: regMuni,
+      Seniority_años: 0, 
+      Calidad_premium: "NO"
+    };
+
+    try {
+      const res = await fetch(`${API_URL}?sheet=Agricultores`, { 
+        method: "POST", headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ data: [nuevoAgricultor] }) 
+      });
+      if (!res.ok) throw new Error("Error en la base de datos");
+      
+      await onRefresh(); 
+      setIsReg(false);   
+      alert("¡Cuenta creada con éxito! Ya puedes iniciar sesión.");
+      setCedula(regCedula);
+      setFarmerPass(""); 
+    } catch (e) {
+      setErr("Hubo un error al crear la cuenta. Intenta de nuevo.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -719,26 +762,57 @@ function Login({ farmersRaw, movimientosRaw, onLogin }: LoginProps) {
       <div className="login-card">
         <div className="brand">Vive<span>Puntos</span></div>
         <div className="brand-sub">Programa de fidelización agrícola</div>
-        <div className="tabs">
-          <button className={`tab ${mode==="farmer"?"active":""}`} onClick={()=>setMode("farmer")}>👨‍🌾 Soy agricultor</button>
-          <button className={`tab ${mode==="admin"?"active":""}`} onClick={()=>setMode("admin")}>🛠️ Admin ViveAgro</button>
-        </div>
-        {mode === "farmer"
-          ? <>
-              <div className="lbl">Número de cédula</div>
-              <input className="inp" placeholder="Ej: 12345678" value={cedula} onChange={e=>setCedula(e.target.value)}/>
-              <div className="lbl">Contraseña</div>
-              <input className="inp" type="password" placeholder="Tu contraseña secreta" value={farmerPass} onChange={e=>setFarmerPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/>
-            </>
-          : <>
-              <div className="lbl">Usuario</div>
-              <input className="inp" placeholder="admin" value={user} onChange={e=>setUser(e.target.value)}/>
-              <div className="lbl">Contraseña</div>
-              <input className="inp" type="password" placeholder="••••••••" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/>
-            </>
-        }
-        {err && <div className="err">⚠️ {err}</div>}
-        <button className="btn" onClick={go}>Ingresar</button>
+        
+        {!isReg && (
+          <div className="tabs">
+            <button className={`tab ${mode==="farmer"?"active":""}`} onClick={()=>setMode("farmer")}>👨‍🌾 Soy agricultor</button>
+            <button className={`tab ${mode==="admin"?"active":""}`} onClick={()=>setMode("admin")}>🛠️ Admin ViveAgro</button>
+          </div>
+        )}
+
+        {isReg ? (
+          <>
+            <div style={{textAlign:"center", fontWeight:700, color:"var(--brown)", marginBottom:16, fontSize:18}}>Crear nueva cuenta</div>
+            <div className="lbl">Nombre y Apellidos *</div>
+            <input className="inp" placeholder="Ej: Juan Pérez" value={regName} onChange={e=>setRegName(e.target.value)}/>
+            <div className="lbl">Número de Cédula *</div>
+            <input className="inp" type="number" placeholder="Ej: 12345678" value={regCedula} onChange={e=>setRegCedula(e.target.value)}/>
+            <div className="lbl">Correo Electrónico</div>
+            <input className="inp" type="email" placeholder="juan@correo.com" value={regCorreo} onChange={e=>setRegCorreo(e.target.value)}/>
+            <div className="lbl">Municipio / Vereda *</div>
+            <input className="inp" placeholder="Ej: Subachoque" value={regMuni} onChange={e=>setRegMuni(e.target.value)}/>
+            <div className="lbl">Crea tu Contraseña *</div>
+            <input className="inp" type="password" placeholder="Mínimo 4 caracteres" value={regPass} onChange={e=>setRegPass(e.target.value)}/>
+            
+            {err && <div className="err">⚠️ {err}</div>}
+            <button className="btn" onClick={register} disabled={loading}>{loading ? "Creando cuenta..." : "📝 Registrarme"}</button>
+            <div style={{textAlign:"center", marginTop:16}}>
+              <button onClick={()=>setIsReg(false)} style={{background:"none", border:"none", color:"var(--bl)", fontSize:12, fontWeight:700, cursor:"pointer"}}>← Volver al inicio de sesión</button>
+            </div>
+          </>
+        ) : mode === "farmer" ? (
+          <>
+            <div className="lbl">Número de cédula</div>
+            <input className="inp" placeholder="Ej: 12345678" value={cedula} onChange={e=>setCedula(e.target.value)}/>
+            <div className="lbl">Contraseña</div>
+            <input className="inp" type="password" placeholder="Tu contraseña secreta" value={farmerPass} onChange={e=>setFarmerPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/>
+            {err && <div className="err">⚠️ {err}</div>}
+            <button className="btn" onClick={go}>Ingresar</button>
+            <div style={{textAlign:"center", marginTop:24, borderTop:"1px solid #f0ebe2", paddingTop:16}}>
+              <div style={{fontSize:12, color:"var(--bl)", marginBottom:8}}>¿Eres agricultor de ViveAgro y no tienes cuenta?</div>
+              <button onClick={()=>setIsReg(true)} style={{background:"none", border:"none", color:"var(--green)", fontSize:13, fontWeight:700, cursor:"pointer"}}>Crear cuenta nueva →</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="lbl">Usuario</div>
+            <input className="inp" placeholder="admin" value={user} onChange={e=>setUser(e.target.value)}/>
+            <div className="lbl">Contraseña</div>
+            <input className="inp" type="password" placeholder="••••••••" value={pass} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&go()}/>
+            {err && <div className="err">⚠️ {err}</div>}
+            <button className="btn" onClick={go}>Ingresar</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -799,7 +873,7 @@ export default function App() {
     <div className="app">
       <style>{style}</style>
       {!session
-        ? <Login farmersRaw={db.farmers} movimientosRaw={db.movimientos} onLogin={setSession}/>
+        ? <Login farmersRaw={db.farmers} movimientosRaw={db.movimientos} onLogin={setSession} onRefresh={cargarDatos}/>
         : session.type === "farmer" && session.data
           ? <FarmerApp farmer={session.data} premios={db.premios} onLogout={()=>setSession(null)}/>
           : <AdminApp farmersRaw={db.farmers} movimientosRaw={db.movimientos} premios={db.premios} rawDebug={db} onRefresh={cargarDatos} onLogout={()=>setSession(null)}/>
