@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 
-// 🔗 Llamamos a la URL desde el archivo oculto .env de forma segura
-// Si aún no tienes el .env, reemplaza import.meta.env.VITE_SHEETDB_URL por "TU_URL_AQUI"
+// 🔗 Llamamos a la URL desde el archivo oculto .env
 const API_URL = import.meta.env.VITE_SHEETDB_URL || "URL_DE_EMERGENCIA";
 
 // ─── TIPOS ────────────────────────────────────────────────────────────────────
@@ -9,7 +8,7 @@ interface RawFarmerRow {
   ID: string | number;
   Nombre: string;
   Cedula: string | number;
-  Contrasena?: string | number; // 🔒 NUEVA COLUMNA PARA EL EXCEL
+  Contrasena?: string | number; 
   Municipio?: string;
   Seniority_años?: string | number;
   Calidad_premium?: string;
@@ -110,6 +109,8 @@ const lvl = (pts: number | string): LvlInfo => {
 
 const disc: Record<string, string> = { silver:"5%", gold:"10%", diamond:"15%" };
 const prc: Record<string, string>  = { silver:"Precio base", gold:"+2%/ton", diamond:"+4%/ton" };
+
+// FECHA ESTÁNDAR PARA GUARDAR EN EXCEL (YYYY-MM-DD)
 const hoy = (): string => {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -126,58 +127,57 @@ const toNum = (v: unknown): number => {
 const sameId = (a: unknown, b: unknown): boolean =>
   Math.round(toNum(a)) === Math.round(toNum(b));
 
-  const mapFarmer = (row: RawFarmerRow, movimientos: RawMovRow[]): Farmer => {
-    const farmerId = row.ID;
-    const misMov = movimientos.filter(m => sameId(m.ID_Agricultor, farmerId));
-    
-    // 1. Calculamos los puntos evitando negativos
-    const rawPoints = misMov.reduce((sum, m) => sum + toNum(m.Puntos), 0);
-    const points = Math.max(0, rawPoints);
+const mapFarmer = (row: RawFarmerRow, movimientos: RawMovRow[]): Farmer => {
+  const farmerId = row.ID;
+  const misMov = movimientos.filter(m => sameId(m.ID_Agricultor, farmerId));
   
-    // 2. Calculamos las toneladas
-    const toneladas = misMov
-      .filter(m => m.Tipo === "suma" && !String(m.Descripcion).toLowerCase().includes("bono") && !String(m.Descripcion).toLowerCase().includes("antigüedad"))
-      .reduce((sum, m) => sum + Math.max(0, toNum(m.Puntos)), 0);
-  
-    // 🌟 NUEVO: Traductor de fechas (convierte "06 mar 2026" a un valor de tiempo matemático)
-    const parseDate = (dateStr: string) => {
-      if (!dateStr) return 0;
-      const str = String(dateStr).toLowerCase().replace('.', '');
-      const parts = str.split(' ');
-      if (parts.length === 3) {
-        const d = parseInt(parts[0], 10);
-        const m = {ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11}[parts[1].substring(0,3)] ?? 0;
-        const y = parseInt(parts[2], 10);
-        return new Date(y, m, d).getTime();
-      }
-      return new Date(str).getTime() || 0;
-    };
-  
-    // 3. Ordenamos el historial usando el calendario real (b - a = más reciente a más antiguo)
-    const historia: HistoryItem[] = [...misMov]
-      .sort((a, b) => parseDate(String(b.Fecha)) - parseDate(String(a.Fecha)))
-      .map((m, i) => {
-        const pts = toNum(m.Puntos);
-        const tipo = String(m.Tipo || "").toLowerCase();
-        let type: "plus" | "minus" | "gold" = "plus";
-        if (tipo === "descuento") type = "minus";
-        else if (tipo === "canje") type = "gold";
-        else if (pts < 0) type = "minus";
-        return { id: String(m.ID ?? i), desc: m.Descripcion || "—", pts, type, date: m.Fecha || "" };
-      });
-  
-    return {
-      id:        String(farmerId),
-      name:      row.Nombre || "—",
-      cedula:    String(row.Cedula || "").trim(),
-      municipio: row.Municipio || "—",
-      points,
-      seniority: toNum(row["Seniority_años"] ?? 0),
-      quality:   String(row.Calidad_premium || "").toUpperCase() === "SI",
-      tons:      toneladas,
-      history:   historia,
-    };
+  // 1. Calculamos los puntos evitando negativos
+  const rawPoints = misMov.reduce((sum, m) => sum + toNum(m.Puntos), 0);
+  const points = Math.max(0, rawPoints);
+
+  // 2. Calculamos las toneladas
+  const toneladas = misMov
+    .filter(m => m.Tipo === "suma" && !String(m.Descripcion).toLowerCase().includes("bono") && !String(m.Descripcion).toLowerCase().includes("antigüedad"))
+    .reduce((sum, m) => sum + Math.max(0, toNum(m.Puntos)), 0);
+
+  // 3. Traductor de fechas para ordenar perfectamente
+  const parseDate = (dateStr: string) => {
+    if (!dateStr) return 0;
+    const str = String(dateStr).toLowerCase().replace('.', '');
+    const parts = str.split(' ');
+    if (parts.length === 3) {
+      const d = parseInt(parts[0], 10);
+      const m = {ene:0,feb:1,mar:2,abr:3,may:4,jun:5,jul:6,ago:7,sep:8,oct:9,nov:10,dic:11}[parts[1].substring(0,3)] ?? 0;
+      const y = parseInt(parts[2], 10);
+      return new Date(y, m, d).getTime();
+    }
+    return new Date(str).getTime() || 0;
   };
+
+  const historia: HistoryItem[] = [...misMov]
+    .sort((a, b) => parseDate(String(b.Fecha)) - parseDate(String(a.Fecha)))
+    .map((m, i) => {
+      const pts = toNum(m.Puntos);
+      const tipo = String(m.Tipo || "").toLowerCase();
+      let type: "plus" | "minus" | "gold" = "plus";
+      if (tipo === "descuento") type = "minus";
+      else if (tipo === "canje") type = "gold";
+      else if (pts < 0) type = "minus";
+      return { id: String(m.ID ?? i), desc: m.Descripcion || "—", pts, type, date: m.Fecha || "" };
+    });
+
+  return {
+    id:        String(farmerId),
+    name:      row.Nombre || "—",
+    cedula:    String(row.Cedula || "").trim(),
+    municipio: row.Municipio || "—",
+    points,
+    seniority: toNum(row["Seniority_años"] ?? 0),
+    quality:   String(row.Calidad_premium || "").toUpperCase() === "SI",
+    tons:      toneladas,
+    history:   historia,
+  };
+};
 
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
 const style = `
@@ -185,7 +185,7 @@ const style = `
   * { box-sizing:border-box; margin:0; padding:0; }
   :root { --cream:#f5f0e8;--brown:#3d2b1f;--bl:#7a5c45;--green:#2d5a27;--gl:#4a8c42;--gold:#c8922a;--gll:#e8b84b;--silver:#8a9ba8;--diam:#4fc3c0;--red:#c0392b;--white:#fffdf8; }
   .app { min-height:100vh; background:var(--cream); font-family:'DM Sans',sans-serif; }
-  .login-screen { min-height:100vh; display:flex; items-align:center; justify-content:center; background:linear-gradient(160deg,#1a3a15,#2d5a27,#3d2b1f); align-items:center; }
+  .login-screen { min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(160deg,#1a3a15,#2d5a27,#3d2b1f); }
   .login-card { background:var(--white); border-radius:24px; padding:48px 40px; width:400px; max-width:95vw; box-shadow:0 40px 80px rgba(0,0,0,.4); }
   .brand { font-family:'Playfair Display',serif; font-size:36px; font-weight:900; color:var(--green); text-align:center; margin-bottom:4px; }
   .brand span { color:var(--gold); }
@@ -308,6 +308,10 @@ function FarmerApp({ farmer, premios, onLogout }: FarmerAppProps) {
   const li = lvl(f.points);
   const t  = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2500); };
 
+  // 🌟 FECHA DINÁMICA
+  const añoActual = new Date().getFullYear();
+  const fechaVencimiento = `31 Dic ${añoActual}`;
+
   const confirmRedeem = async () => {
     if (!rdm || f.points < rdm.pts) return;
     try {
@@ -341,7 +345,7 @@ function FarmerApp({ farmer, premios, onLogout }: FarmerAppProps) {
           </div>
           <div className="pnum">{f.points.toLocaleString()}</div>
           <div className="plbl">puntos disponibles</div>
-          <div className="pexp"><span className="pexp-l">⏰ Vencen el</span><span className="pexp-d">31 Dic 2025</span></div>
+          <div className="pexp"><span className="pexp-l">⏰ Vencen el</span><span className="pexp-d">{fechaVencimiento}</span></div>
           {li.next && li.np && <>
             <div className="prog-lbl"><span>Hacia {li.next}</span><span>{f.points.toLocaleString()} / {li.np.toLocaleString()}</span></div>
             <div className="prog-bar"><div className="prog-fill" style={{width:`${Math.min(100,li.prog)}%`}}/></div>
@@ -416,7 +420,7 @@ function FarmerApp({ farmer, premios, onLogout }: FarmerAppProps) {
             <div className="av" style={{width:52,height:52,fontSize:22}}>{f.name[0]}</div>
             <div><div style={{fontFamily:"Playfair Display,serif",fontSize:20,fontWeight:700,color:"var(--brown)"}}>{f.name}</div><div style={{fontSize:13,color:"var(--bl)"}}>C.C. {f.cedula}</div></div>
           </div>
-          {([["📍 Municipio",f.municipio],["📅 Antigüedad",`${f.seniority} año(s)`],["💎 Nivel",li.lbl],["🎯 Puntos",f.points.toLocaleString()],["📋 Movimientos",`${f.history.length} registros`],["⏰ Vencimiento","31 Dic 2025"]] as [string,string][]).map(([k,v]) => (
+          {([["📍 Municipio",f.municipio],["📅 Antigüedad",`${f.seniority} año(s)`],["💎 Nivel",li.lbl],["🎯 Puntos",f.points.toLocaleString()],["📋 Movimientos",`${f.history.length} registros`],["⏰ Vencimiento",fechaVencimiento]] as [string,string][]).map(([k,v]) => (
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid #f0ebe2",fontSize:14}}>
               <span style={{color:"var(--bl)"}}>{k}</span><span style={{fontWeight:700,color:"var(--brown)"}}>{v}</span>
             </div>
@@ -482,29 +486,17 @@ function AdminApp({ farmersRaw, movimientosRaw, premios, rawDebug, onRefresh, on
     setSaving(true);
     const delta = parseInt(form.amt) * (form.type === "minus" ? -1 : 1);
     
-    // ⛔ VALIDACIÓN: Bloquear saldo negativo
     if (farmer.points + delta < 0) {
       setSaving(false);
       t(`❌ Error: El agricultor no puede quedar con puntos negativos (tiene ${farmer.points})`);
       return;
     }
 
-    // 🌟 EL TRUCO AQUÍ: Buscamos el ID más alto que existe en tu Excel y le sumamos 1
+    // 🌟 IDs SECUENCIALES
     const maxId = movimientosRaw.reduce((max, m) => Math.max(max, Number(m.ID) || 0), 0);
     const nuevoId = maxId + 1;
 
-    // Guardamos usando el nuevo ID secuencial
-    const nuevoMov = { 
-      ID: nuevoId, 
-      ID_Agricultor: Number(farmer.id), 
-      Nombre_Agricultor: farmer.name, 
-      Descripcion: form.reason || "Ajuste manual admin", 
-      Puntos: delta, 
-      Tipo: form.type === "plus" ? "suma" : "descuento", 
-      Fecha: todayStr, 
-      Registrado_por: "Admin" 
-    };
-
+    const nuevoMov = { ID: nuevoId, ID_Agricultor: Number(farmer.id), Nombre_Agricultor: farmer.name, Descripcion: form.reason || "Ajuste manual admin", Puntos: delta, Tipo: form.type === "plus" ? "suma" : "descuento", Fecha: todayStr, Registrado_por: "Admin" };
     try {
       const res = await fetch(`${API_URL}?sheet=Movimientos`, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({data:[nuevoMov]}) });
       if (!res.ok) throw new Error("SheetDB respondió con error");
@@ -700,7 +692,7 @@ interface LoginProps {
 function Login({ farmersRaw, movimientosRaw, onLogin }: LoginProps) {
   const [mode, setMode]             = useState<"farmer"|"admin">("farmer");
   const [cedula, setCedula]         = useState<string>("");
-  const [farmerPass, setFarmerPass] = useState<string>(""); // 🔒 Estado para la clave del agricultor
+  const [farmerPass, setFarmerPass] = useState<string>(""); 
   const [user, setUser]             = useState<string>("");
   const [pass, setPass]             = useState<string>("");
   const [err, setErr]               = useState<string>("");
@@ -708,11 +700,9 @@ function Login({ farmersRaw, movimientosRaw, onLogin }: LoginProps) {
   const go = () => {
     setErr("");
     if (mode === "farmer") {
-      // 1. Buscamos la cédula
       const row = farmersRaw.find(x => String(x.Cedula).trim() === cedula.trim());
       if (!row) return setErr(`Cédula no encontrada.`);
       
-      // 2. Validamos la contraseña del Excel
       if (String(row.Contrasena).trim() !== farmerPass.trim()) {
         return setErr("Contraseña incorrecta. Intenta de nuevo.");
       }
